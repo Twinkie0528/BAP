@@ -1,0 +1,33 @@
+# Central Planning Platform (CPP) Dependencies
+# =============================================
+# Install with: pip install -r requirements.txt
+
+# Core Framework
+streamlit>=1.28.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0  # Excel file support
+
+# Database
+sqlmodel>=0.0.14
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL driver
+
+# Data Grid
+streamlit-aggrid>=0.3.4
+
+# Authentication
+bcrypt>=4.0.0  # Password hashing
+
+# Date/Time
+python-dateutil>=2.8.0
+
+# Utilities
+python-dotenv>=1.0.0  # Environment variables
+
+# Optional: For development
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
