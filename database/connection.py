@@ -22,7 +22,7 @@ import logging
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, text
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
@@ -206,7 +206,7 @@ def check_database_connection() -> bool:
     try:
         with get_session() as session:
             # Try a simple query
-            session.exec("SELECT 1")
+            session.exec(text("SELECT 1"))
         logger.info("Database connection successful")
         return True
     except Exception as e:
