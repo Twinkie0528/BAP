@@ -24,8 +24,11 @@ __pycache__/
 Thumbs.db
 
 # BAP specific - Assets and generated files
-assets/
-*.pdf
+# Keep directory structure but ignore actual files
+assets/signed_files/*
+!assets/signed_files/.gitkeep
+assets/generated_pdfs/*
+!assets/generated_pdfs/.gitkeep
 *.log
 
 # Streamlit
