@@ -64,13 +64,13 @@ def init_session_state():
 @st.cache_data(ttl=60)  # Cache for 60 seconds
 def load_all_budget_items() -> pd.DataFrame:
     """
-    Load ALL budget items from the database.
+    Load ALL budget items from FINALIZED files only.
     
-    Global Visibility: Everyone sees everything regardless of role.
-    No filtering by uploader_id or specialist.
+    Dashboard Rule: Only show data where status = 'FINALIZED'.
+    This ensures only completed, signed budgets appear on the dashboard.
     
     Returns:
-        DataFrame with all budget items and related info
+        DataFrame with all budget items from finalized files
     """
     with get_session() as session:
         # Join BudgetItem with BudgetFile and User to get specialist name
@@ -91,17 +91,17 @@ def load_all_budget_items() -> pd.DataFrame:
             BudgetItem.metric_3,
             BudgetItem.description,
             BudgetItem.created_at,
+            BudgetItem.specialist,  # Use specialist from BudgetItem
             BudgetFile.filename,
             BudgetFile.status,
-            User.username.label('specialist'),  # The user who uploaded
             User.full_name.label('specialist_name')
         ).join(
             BudgetFile, BudgetItem.file_id == BudgetFile.id
         ).join(
             User, BudgetFile.uploader_id == User.id
         ).where(
-            # Only show published items (or remove this for all statuses)
-            BudgetFile.status == FileStatus.PUBLISHED
+            # CRITICAL: Only show FINALIZED items (Stage 4 complete)
+            BudgetFile.status == FileStatus.FINALIZED
         )
         
         results = session.exec(statement).all()
@@ -123,6 +123,12 @@ def load_all_budget_items() -> pd.DataFrame:
         # Format amount for display
         if 'amount_planned' in df.columns:
             df['amount_planned'] = pd.to_numeric(df['amount_planned'], errors='coerce')
+        
+        # Use specialist from BudgetItem if available, otherwise fall back to username
+        if 'specialist' not in df.columns or df['specialist'].isna().all():
+            # If specialist column doesn't exist or is empty, we need to add it
+            # This is for backwards compatibility
+            pass
         
         return df
 

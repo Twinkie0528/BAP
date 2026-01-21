@@ -53,15 +53,17 @@ MAX_UPLOAD_SIZE_MB = 50
 
 class FileStatus(str, Enum):
     """
-    Budget file workflow statuses.
+    Budget file workflow statuses - 4-Stage Strict Workflow.
     
-    Workflow: DRAFT -> PENDING -> APPROVED/REJECTED -> PUBLISHED
+    Stage 1: PENDING_APPROVAL - Planner uploaded, awaiting manager review (NOT visible on dashboard)
+    Stage 2: APPROVED_FOR_PRINT - Manager approved, planner can generate PDF
+    Stage 3: SIGNING - Planner downloaded PDF, getting physical signatures offline
+    Stage 4: FINALIZED - Signed document uploaded, data visible on main dashboard
     """
-    DRAFT = "draft"           # Just uploaded, not submitted
-    PENDING = "pending"       # Submitted for review
-    APPROVED = "approved"     # Manager approved
-    REJECTED = "rejected"     # Manager rejected (needs revision)
-    PUBLISHED = "published"   # Archived to database, visible in dashboard
+    PENDING_APPROVAL = "pending_approval"      # Stage 1: Uploaded, awaiting approval
+    APPROVED_FOR_PRINT = "approved_for_print"  # Stage 2: Approved, ready for PDF
+    SIGNING = "signing"                        # Stage 3: PDF generated, awaiting signed scan
+    FINALIZED = "finalized"                    # Stage 4: Complete, visible on dashboard
 
 
 class UserRole(str, Enum):
@@ -104,3 +106,13 @@ HEADER_KEYWORDS = [
 
 # Supported file extensions
 SUPPORTED_EXTENSIONS = [".xlsx", ".xls", ".csv"]
+
+# =============================================================================
+# FILE STORAGE SETTINGS
+# =============================================================================
+
+# Directory for storing signed documents (on disk, not in DB)
+SIGNED_FILES_DIR = "assets/signed_files"
+
+# Allowed file types for signed document uploads
+ALLOWED_SIGNED_FILE_TYPES = [".pdf", ".jpg", ".jpeg", ".png"]

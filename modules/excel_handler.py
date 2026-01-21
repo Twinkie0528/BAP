@@ -719,7 +719,8 @@ def detect_channel_from_filename(filename: str) -> Optional[str]:
 def dataframe_to_budget_items(
     df: pd.DataFrame,
     file_id: int,
-    channel_type: str
+    channel_type: str,
+    specialist_username: str = None
 ) -> List[Dict[str, Any]]:
     """
     Convert a processed DataFrame to list of BudgetItem dictionaries.
@@ -730,6 +731,7 @@ def dataframe_to_budget_items(
         df: Processed and validated DataFrame
         file_id: ID of the parent BudgetFile
         channel_type: Channel type string
+        specialist_username: Username of the specialist/planner (for row-level security)
     
     Returns:
         List of dictionaries ready for BudgetItem creation
@@ -756,6 +758,7 @@ def dataframe_to_budget_items(
         item = {
             "file_id": file_id,
             "channel": channel_type,
+            "specialist": specialist_username,  # Add specialist for row-level security
         }
         
         for df_col, model_field in field_mapping.items():

@@ -164,8 +164,8 @@ class BudgetFile(SQLModel, table=True):
     
     # Workflow Status
     status: FileStatus = Field(
-        sa_column=Column(SAEnum(FileStatus), nullable=False, default=FileStatus.DRAFT),
-        default=FileStatus.DRAFT,
+        sa_column=Column(SAEnum(FileStatus), nullable=False, default=FileStatus.PENDING_APPROVAL),
+        default=FileStatus.PENDING_APPROVAL,
         description="Current workflow status"
     )
     
@@ -196,6 +196,30 @@ class BudgetFile(SQLModel, table=True):
     published_at: Optional[datetime] = Field(
         default=None,
         description="When file was published to dashboard"
+    )
+    
+    # 4-Stage Workflow: PDF and Signed Document
+    pdf_generated_at: Optional[datetime] = Field(
+        default=None,
+        description="When system-generated PDF was created"
+    )
+    pdf_file_path: Optional[str] = Field(
+        sa_column=Column(String(500)),
+        default=None,
+        description="Path to generated PDF file"
+    )
+    signed_file_path: Optional[str] = Field(
+        sa_column=Column(String(500)),
+        default=None,
+        description="Path to uploaded signed document (stored on disk, NOT in DB)"
+    )
+    signed_uploaded_at: Optional[datetime] = Field(
+        default=None,
+        description="When signed document was uploaded"
+    )
+    finalized_at: Optional[datetime] = Field(
+        default=None,
+        description="When file reached FINALIZED status"
     )
     
     # Review Information
@@ -291,6 +315,13 @@ class BudgetItem(SQLModel, table=True):
     row_number: Optional[int] = Field(
         default=None,
         description="Original row number in Excel file"
+    )
+    
+    # Specialist/Owner (for row-level security)
+    specialist: Optional[str] = Field(
+        sa_column=Column(String(100)),
+        default=None,
+        description="Username of the specialist/planner who uploaded this item"
     )
     
     # ===================
