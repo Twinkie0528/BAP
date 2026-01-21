@@ -1,2 +1,32 @@
+# Python virtual environments
 /venv
 /.venv
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database files
+*.db
+*.db-journal
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# BAP specific - Assets and generated files
+assets/
+*.pdf
+*.log
+
+# Streamlit
+.streamlit/secrets.toml

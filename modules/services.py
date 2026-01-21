@@ -57,7 +57,7 @@ def create_budget_file(
             filename=filename,
             channel_type=ChannelType(channel_type),
             uploader_id=uploader_id,
-            status=FileStatus.DRAFT,
+            status=FileStatus.PENDING_APPROVAL,  # Start with Stage 1
             row_count=row_count,
             total_amount=Decimal(str(total_amount)) if total_amount else None,
             file_hash=file_hash,
@@ -129,14 +129,15 @@ def update_budget_file_status(
             budget_file.status = new_status
             
             # Update timestamps based on status
-            if new_status == FileStatus.PENDING:
-                budget_file.submitted_at = datetime.utcnow()
-            elif new_status in [FileStatus.APPROVED, FileStatus.REJECTED]:
+            if new_status == FileStatus.APPROVED_FOR_PRINT:
                 budget_file.reviewed_at = datetime.utcnow()
                 budget_file.reviewer_id = reviewer_id
                 budget_file.reviewer_comment = reviewer_comment
-            elif new_status == FileStatus.PUBLISHED:
-                budget_file.published_at = datetime.utcnow()
+            elif new_status == FileStatus.SIGNING:
+                budget_file.pdf_generated_at = datetime.utcnow()
+            elif new_status == FileStatus.FINALIZED:
+                budget_file.finalized_at = datetime.utcnow()
+                budget_file.published_at = datetime.utcnow()  # Also set published_at for compatibility
             
             session.add(budget_file)
             session.commit()
@@ -226,18 +227,18 @@ def get_published_items_by_channel(
     """
     Get published budget items filtered by channel and date range.
     
-    Only returns items from files with PUBLISHED status.
+    Only returns items from files with FINALIZED status.
     """
     with get_session() as session:
-        # First, get published file IDs
-        published_files = (
+        # First, get finalized file IDs
+        finalized_files = (
             select(BudgetFile.id)
-            .where(BudgetFile.status == FileStatus.PUBLISHED)
+            .where(BudgetFile.status == FileStatus.FINALIZED)
         )
         
         # Build query for items
         conditions = [
-            BudgetItem.file_id.in_(published_files),
+            BudgetItem.file_id.in_(finalized_files),
             BudgetItem.channel == channel
         ]
         
@@ -264,12 +265,13 @@ def get_budget_summary_by_channel() -> List[Dict[str, Any]]:
     Get aggregated budget summary grouped by channel.
     
     Returns data for dashboard charts.
+    Only includes FINALIZED files.
     """
     with get_session() as session:
-        # Only count published files
-        published_files = (
+        # Only count finalized files
+        finalized_files = (
             select(BudgetFile.id)
-            .where(BudgetFile.status == FileStatus.PUBLISHED)
+            .where(BudgetFile.status == FileStatus.FINALIZED)
         )
         
         statement = (
@@ -278,7 +280,7 @@ def get_budget_summary_by_channel() -> List[Dict[str, Any]]:
                 func.count(BudgetItem.id).label('item_count'),
                 func.sum(BudgetItem.amount_planned).label('total_amount')
             )
-            .where(BudgetItem.file_id.in_(published_files))
+            .where(BudgetItem.file_id.in_(finalized_files))
             .group_by(BudgetItem.channel)
         )
         
@@ -299,11 +301,12 @@ def get_monthly_budget_trend(year: int) -> List[Dict[str, Any]]:
     Get monthly budget totals for a specific year.
     
     Returns data for trend charts.
+    Only includes FINALIZED files.
     """
     with get_session() as session:
-        published_files = (
+        finalized_files = (
             select(BudgetFile.id)
-            .where(BudgetFile.status == FileStatus.PUBLISHED)
+            .where(BudgetFile.status == FileStatus.FINALIZED)
         )
         
         # This query gets monthly aggregates
@@ -315,7 +318,7 @@ def get_monthly_budget_trend(year: int) -> List[Dict[str, Any]]:
             )
             .where(
                 and_(
-                    BudgetItem.file_id.in_(published_files),
+                    BudgetItem.file_id.in_(finalized_files),
                     func.extract('year', BudgetItem.start_date) == year
                 )
             )
@@ -402,3 +405,103 @@ def get_workflow_status_counts() -> Dict[str, int]:
             counts[row.status.value] = row.count
         
         return counts
+
+
+# =============================================================================
+# 4-STAGE WORKFLOW HELPERS
+# =============================================================================
+
+def update_file_with_signed_document(
+    file_id: int,
+    signed_file_path: str
+) -> Optional[BudgetFile]:
+    """
+    Update budget file with signed document path and move to FINALIZED status.
+    
+    Args:
+        file_id: ID of the file to update
+        signed_file_path: Path to the signed document (stored on disk)
+    
+    Returns:
+        Updated BudgetFile or None if not found
+    """
+    with get_session() as session:
+        budget_file = session.get(BudgetFile, file_id)
+        
+        if budget_file:
+            budget_file.signed_file_path = signed_file_path
+            budget_file.signed_uploaded_at = datetime.utcnow()
+            budget_file.status = FileStatus.FINALIZED
+            budget_file.finalized_at = datetime.utcnow()
+            budget_file.published_at = datetime.utcnow()
+            
+            session.add(budget_file)
+            session.commit()
+            session.refresh(budget_file)
+        
+        return budget_file
+
+
+def update_file_with_pdf(
+    file_id: int,
+    pdf_file_path: str
+) -> Optional[BudgetFile]:
+    """
+    Update budget file with generated PDF path and move to SIGNING status.
+    
+    Args:
+        file_id: ID of the file to update
+        pdf_file_path: Path to the generated PDF file
+    
+    Returns:
+        Updated BudgetFile or None if not found
+    """
+    with get_session() as session:
+        budget_file = session.get(BudgetFile, file_id)
+        
+        if budget_file:
+            budget_file.pdf_file_path = pdf_file_path
+            budget_file.pdf_generated_at = datetime.utcnow()
+            budget_file.status = FileStatus.SIGNING
+            
+            session.add(budget_file)
+            session.commit()
+            session.refresh(budget_file)
+        
+        return budget_file
+
+
+def get_files_pending_approval(limit: int = 100) -> List[BudgetFile]:
+    """Get all files awaiting manager approval (Stage 1)."""
+    return get_budget_files_by_status(FileStatus.PENDING_APPROVAL, limit)
+
+
+def get_files_approved_for_print(uploader_id: int, limit: int = 50) -> List[BudgetFile]:
+    """Get files approved for printing for a specific planner (Stage 2)."""
+    with get_session() as session:
+        statement = (
+            select(BudgetFile)
+            .where(BudgetFile.status == FileStatus.APPROVED_FOR_PRINT)
+            .where(BudgetFile.uploader_id == uploader_id)
+            .order_by(BudgetFile.reviewed_at.desc())
+            .limit(limit)
+        )
+        return session.exec(statement).all()
+
+
+def get_files_in_signing(uploader_id: int, limit: int = 50) -> List[BudgetFile]:
+    """Get files in signing stage for a specific planner (Stage 3)."""
+    with get_session() as session:
+        statement = (
+            select(BudgetFile)
+            .where(BudgetFile.status == FileStatus.SIGNING)
+            .where(BudgetFile.uploader_id == uploader_id)
+            .order_by(BudgetFile.pdf_generated_at.desc())
+            .limit(limit)
+        )
+        return session.exec(statement).all()
+
+
+def get_finalized_files(limit: int = 100) -> List[BudgetFile]:
+    """Get all finalized files (Stage 4) visible on dashboard."""
+    return get_budget_files_by_status(FileStatus.FINALIZED, limit)

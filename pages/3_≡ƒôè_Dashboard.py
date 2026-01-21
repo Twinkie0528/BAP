@@ -64,13 +64,13 @@ def init_session_state():
 @st.cache_data(ttl=60)  # Cache for 60 seconds
 def load_all_budget_items() -> pd.DataFrame:
     """
-    Load ALL budget items from the database.
+    Load ALL budget items from FINALIZED files only.
     
-    Global Visibility: Everyone sees everything regardless of role.
-    No filtering by uploader_id or specialist.
+    Dashboard Rule: Only show data where status = 'FINALIZED'.
+    This ensures only completed, signed budgets appear on the dashboard.
     
     Returns:
-        DataFrame with all budget items and related info
+        DataFrame with all budget items from finalized files
     """
     with get_session() as session:
         # Join BudgetItem with BudgetFile and User to get specialist name
@@ -91,17 +91,17 @@ def load_all_budget_items() -> pd.DataFrame:
             BudgetItem.metric_3,
             BudgetItem.description,
             BudgetItem.created_at,
+            BudgetItem.specialist,  # Use specialist from BudgetItem
             BudgetFile.filename,
             BudgetFile.status,
-            User.username.label('specialist'),  # The user who uploaded
             User.full_name.label('specialist_name')
         ).join(
             BudgetFile, BudgetItem.file_id == BudgetFile.id
         ).join(
             User, BudgetFile.uploader_id == User.id
         ).where(
-            # Only show published items (or remove this for all statuses)
-            BudgetFile.status == FileStatus.PUBLISHED
+            # CRITICAL: Only show FINALIZED items (Stage 4 complete)
+            BudgetFile.status == FileStatus.FINALIZED
         )
         
         results = session.exec(statement).all()
@@ -123,6 +123,12 @@ def load_all_budget_items() -> pd.DataFrame:
         # Format amount for display
         if 'amount_planned' in df.columns:
             df['amount_planned'] = pd.to_numeric(df['amount_planned'], errors='coerce')
+        
+        # Use specialist from BudgetItem if available, otherwise fall back to username
+        if 'specialist' not in df.columns or df['specialist'].isna().all():
+            # If specialist column doesn't exist or is empty, we need to add it
+            # This is for backwards compatibility
+            pass
         
         return df
 
@@ -271,7 +277,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Specialist column - READ ONLY (shows who owns the row)
     gb.configure_column(
         'specialist',
-        headerName='👤 Specialist',
+        headerName='👤 Мэргэжилтэн',
         editable=False,
         pinned='left',
         width=120,
@@ -281,7 +287,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Campaign Name - Editable by owner
     gb.configure_column(
         'campaign_name',
-        headerName='Campaign',
+        headerName='Кампанит ажил',
         editable=cell_editable_js,
         width=200
     )
@@ -289,7 +295,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Budget Code - Editable by owner
     gb.configure_column(
         'budget_code',
-        headerName='Budget Code',
+        headerName='Төсвийн код',
         editable=cell_editable_js,
         width=120
     )
@@ -297,7 +303,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Vendor - Editable by owner
     gb.configure_column(
         'vendor',
-        headerName='Vendor',
+        headerName='Нийлүүлэгч',
         editable=cell_editable_js,
         width=150
     )
@@ -305,7 +311,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Channel - Read only (set during upload)
     gb.configure_column(
         'channel',
-        headerName='Channel',
+        headerName='Сувag',
         editable=False,
         width=100
     )
@@ -313,7 +319,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Amount - Editable by owner (main field to edit)
     gb.configure_column(
         'amount_planned',
-        headerName='💰 Amount',
+        headerName='💰 Дүн',
         editable=cell_editable_js,
         type=['numericColumn'],
         valueFormatter=JsCode("""
@@ -330,7 +336,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Dates - Editable by owner
     gb.configure_column(
         'start_date',
-        headerName='Start Date',
+        headerName='Эхлэх огноо',
         editable=cell_editable_js,
         type=['dateColumn'],
         width=120
@@ -338,7 +344,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     
     gb.configure_column(
         'end_date',
-        headerName='End Date',
+        headerName='Дуусах огноо',
         editable=cell_editable_js,
         type=['dateColumn'],
         width=120
@@ -347,14 +353,14 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Metrics - Editable by owner
     gb.configure_column(
         'metric_1',
-        headerName='Metric 1',
+        headerName='Хэмжүүр 1',
         editable=cell_editable_js,
         width=100
     )
     
     gb.configure_column(
         'metric_2',
-        headerName='Metric 2',
+        headerName='Хэмжүүр 2',
         editable=cell_editable_js,
         width=100
     )
@@ -362,7 +368,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Description - Editable by owner
     gb.configure_column(
         'description',
-        headerName='Description',
+        headerName='Тайлбар',
         editable=cell_editable_js,
         width=200
     )
@@ -370,7 +376,7 @@ def create_secure_aggrid(df: pd.DataFrame, current_username: str):
     # Sub-channel
     gb.configure_column(
         'sub_channel',
-        headerName='Sub-Channel',
+        headerName='Дэд сувaг',
         editable=cell_editable_js,
         width=120
     )
@@ -500,7 +506,7 @@ def verify_and_save_changes(
     
     if not changed_rows:
         result['success'] = True
-        result['messages'].append("No changes detected")
+        result['messages'].append("Өөрчлөлт илрээгүй")
         return result
     
     # ===================
@@ -516,7 +522,7 @@ def verify_and_save_changes(
         else:
             unauthorized_updates.append(row)
             result['errors'].append(
-                f"⛔ Unauthorized: Row ID {row['id']} belongs to '{row['specialist']}', not you!"
+                f"⛔ Зөвшөөрөлгүй: Мөрийн ID {row['id']} хамаарах '{row['specialist']}', та биш!"
             )
     
     result['unauthorized_count'] = len(unauthorized_updates)
@@ -541,7 +547,7 @@ def verify_and_save_changes(
                         if file and file.uploader:
                             if file.uploader.username != current_username:
                                 result['errors'].append(
-                                    f"⛔ Database check failed: Row {item_id} not owned by you!"
+                                    f"⛔ Өгөгдлийн сангийн шалгалт амжилтгүй боллоо: Мөр {item_id} танд хамааралгүй!"
                                 )
                                 continue
                         
@@ -579,16 +585,16 @@ def verify_and_save_changes(
                 session.commit()
                 result['success'] = True
                 result['messages'].append(
-                    f"✅ Successfully updated {result['updated_count']} row(s)"
+                    f"✅ Амжилттай шинэчлэгдлээ {result['updated_count']} мөр"
                 )
                 
         except Exception as e:
-            result['errors'].append(f"Database error: {str(e)}")
+            result['errors'].append(f"Өгөгдлийн сангийн алдаа: {str(e)}")
     
     # Add warning if there were unauthorized attempts
     if unauthorized_updates:
         result['messages'].append(
-            f"⚠️ {len(unauthorized_updates)} unauthorized edit(s) were blocked"
+            f"⚠️ {len(unauthorized_updates)} зөвшөөрөлгүй засварууд хаагдсан"
         )
     
     return result
@@ -605,8 +611,8 @@ def main():
     init_session_state()
     
     # Page header
-    st.title("📊 CPP Budget Dashboard")
-    st.markdown("View all budgets and edit your own entries")
+    st.title("📊 Төсвийн самбар")
+    st.markdown("Бүх төсвүүдийг харах болон өөрийн бичлэгүүдийг засах")
     
     # ===================
     # Login Check / Demo Mode
@@ -614,29 +620,29 @@ def main():
     
     # Sidebar - User info and demo login
     with st.sidebar:
-        st.subheader("👤 User Session")
+        st.subheader("👤 Хэрэглэгчийн сешн")
         
         if st.session_state.authenticated and st.session_state.username:
-            st.success(f"Logged in as: **{st.session_state.username}**")
-            st.caption(f"Role: {st.session_state.user_role or 'User'}")
+            st.success(f"Нэвтэрсэн нэр: **{st.session_state.username}**")
+            st.caption(f"Үүрэг: {st.session_state.user_role or 'Хэрэглэгч'}")
             
-            if st.button("Logout"):
+            if st.button("Гарах"):
                 st.session_state.authenticated = False
                 st.session_state.username = None
                 st.session_state.user_id = None
                 st.session_state.user_role = None
                 st.rerun()
         else:
-            st.warning("Not logged in - Demo Mode")
-            st.markdown("**Quick Demo Login:**")
+            st.warning("Нэвтрээгүй - Туршилтын горим")
+            st.markdown("**Хурдан туршилтын нэвтрэлт:**")
             
             demo_user = st.selectbox(
-                "Select demo user",
+                "Туршилтын хэрэглэгч сонгох",
                 ["planner", "manager", "admin"],
-                help="Select a user to test row-level security"
+                help="Мөрийн түвшний аюулгүй байдлыг турших хэрэглэгч сонгох"
             )
             
-            if st.button("Login as Demo User"):
+            if st.button("Туршилтын хэрэглэгч болж нэвтрэх"):
                 st.session_state.authenticated = True
                 st.session_state.username = demo_user
                 st.session_state.user_id = 1  # Demo ID
@@ -646,13 +652,13 @@ def main():
         st.divider()
         
         # Legend
-        st.subheader("📋 Legend")
+        st.subheader("📋 Тайлбар")
         st.markdown("""
         <div style='background-color: #d4edda; padding: 8px; border-left: 4px solid #28a745; margin: 5px 0;'>
-            <strong>Green row</strong> = Your data (editable)
+            <strong>Ногоон мөр</strong> = Таны өгөгдөл (засах боломжтой)
         </div>
         <div style='background-color: #f8f9fa; padding: 8px; border-left: 4px solid #6c757d; margin: 5px 0;'>
-            <strong>Gray row</strong> = Other's data (read-only)
+            <strong>Саарал мөр</strong> = Бусдын өгөгдөл (зөвхөн унших)
         </div>
         """, unsafe_allow_html=True)
     
@@ -663,20 +669,20 @@ def main():
     current_username = st.session_state.get('username', 'anonymous')
     
     if not st.session_state.authenticated:
-        st.warning("⚠️ Please login to edit your budgets. You can view all data in read-only mode.")
+        st.warning("⚠️ Өөрийн төсвөө засахын тулд нэвтэрнэ үү. Та бүх өгөгдлийг зөвхөн унших горимд харж болно.")
         current_username = 'anonymous'  # No editing allowed
     else:
-        st.info(f"👤 Logged in as **{current_username}** - You can edit rows highlighted in green")
+        st.info(f"👤 Нэвтэрсэн **{current_username}** - Та ногоон өнгөөр онцолсон мөрүүдийг засаж болно")
     
     # ===================
     # Load Data
     # ===================
     
-    with st.spinner("Loading all budget data..."):
+    with st.spinner("Бүх төсвийн өгөгдлийг ачаалж байна..."):
         try:
             df = load_all_budget_items()
         except Exception as e:
-            st.error(f"Error loading data: {e}")
+            st.error(f"Өгөгдөл ачаалахад алдаа гарлаа: {e}")
             # Try simplified loader
             try:
                 df = load_all_budget_items_simple()
@@ -684,10 +690,10 @@ def main():
                 df = pd.DataFrame()
     
     if df.empty:
-        st.warning("📭 No budget data found. Upload some files first!")
+        st.warning("📭 Төсвийн өгөгдөл олдсонгүй. Эхлээд файл хуулна уу!")
         
         # Show demo data option
-        if st.button("Load Demo Data"):
+        if st.button("Туршилтын өгөгдөл ачаалах"):
             df = create_demo_data()
             st.session_state['demo_data'] = df
             st.rerun()
@@ -702,25 +708,25 @@ def main():
     # Summary Metrics
     # ===================
     
-    st.subheader("📈 Summary")
+    st.subheader("📈 Хураангуй")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         total_budget = df['amount_planned'].sum() if 'amount_planned' in df.columns else 0
-        st.metric("Total Budget", f"₮{total_budget:,.0f}")
+        st.metric("Нийт төсөв", f"₮{total_budget:,.0f}")
     
     with col2:
         total_rows = len(df)
-        st.metric("Total Items", total_rows)
+        st.metric("Нийт зүйл", total_rows)
     
     with col3:
         my_rows = len(df[df['specialist'] == current_username]) if 'specialist' in df.columns else 0
-        st.metric("My Items", my_rows)
+        st.metric("Миний зүйлүүд", my_rows)
     
     with col4:
         unique_campaigns = df['campaign_name'].nunique() if 'campaign_name' in df.columns else 0
-        st.metric("Campaigns", unique_campaigns)
+        st.metric("Кампанит ажлууд", unique_campaigns)
     
     st.divider()
     
@@ -728,43 +734,43 @@ def main():
     # Filters
     # ===================
     
-    st.subheader("🔍 Filters")
+    st.subheader("🔍 Шүүлтүүр")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         # Channel filter
-        channels = ['All'] + (df['channel'].dropna().unique().tolist() if 'channel' in df.columns else [])
-        selected_channel = st.selectbox("Channel", channels)
+        channels = ['Бүгд'] + (df['channel'].dropna().unique().tolist() if 'channel' in df.columns else [])
+        selected_channel = st.selectbox("Сувag", channels)
     
     with col2:
         # Specialist filter
-        specialists = ['All'] + (df['specialist'].dropna().unique().tolist() if 'specialist' in df.columns else [])
-        selected_specialist = st.selectbox("Specialist", specialists)
+        specialists = ['Бүгд'] + (df['specialist'].dropna().unique().tolist() if 'specialist' in df.columns else [])
+        selected_specialist = st.selectbox("Мэргэжилтэн", specialists)
     
     with col3:
         # Show only my data toggle
-        show_only_mine = st.checkbox("Show only my data", value=False)
+        show_only_mine = st.checkbox("Зөвхөн миний өгөгдлийг харуулах", value=False)
     
     # Apply filters
     filtered_df = df.copy()
     
-    if selected_channel != 'All':
+    if selected_channel != 'Бүгд':
         filtered_df = filtered_df[filtered_df['channel'] == selected_channel]
     
-    if selected_specialist != 'All':
+    if selected_specialist != 'Бүгд':
         filtered_df = filtered_df[filtered_df['specialist'] == selected_specialist]
     
     if show_only_mine:
         filtered_df = filtered_df[filtered_df['specialist'] == current_username]
     
-    st.caption(f"Showing {len(filtered_df)} of {len(df)} items")
+    st.caption(f"Харуулж байна {len(filtered_df)} {len(df)}-ийн зүйл")
     
     # ===================
     # Data Grid with Row-Level Security
     # ===================
     
-    st.subheader("📋 Budget Data")
+    st.subheader("📋 Төсвийн өгөгдөл")
     
     # Store original for comparison
     original_df = filtered_df.copy()
@@ -784,11 +790,11 @@ def main():
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("💾 Save Changes", type="primary", disabled=not st.session_state.authenticated):
+        if st.button("💾 Өөрчлөлт хадгалах", type="primary", disabled=not st.session_state.authenticated):
             if not st.session_state.authenticated:
-                st.error("Please login to save changes")
+                st.error("Өөрчлөлт хадгалахын тулд нэвтэрнэ үү")
             else:
-                with st.spinner("Saving changes..."):
+                with st.spinner("Өөрчлөлтүүдийг хадгалж байна..."):
                     result = verify_and_save_changes(original_df, updated_df, current_username)
                 
                 # Show results
@@ -809,13 +815,13 @@ def main():
                     st.rerun()
     
     with col2:
-        if st.button("🔄 Refresh Data"):
+        if st.button("🔄 Өгөгдөл шинэчлэх"):
             st.cache_data.clear()
             st.rerun()
     
     with col3:
         if not st.session_state.authenticated:
-            st.caption("⚠️ Login required to save changes")
+            st.caption("⚠️ Өөрчлөлт хадгалахын тулд нэвтрэх шаардлагатай")
 
 
 # =============================================================================
