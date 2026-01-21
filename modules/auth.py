@@ -178,22 +178,22 @@ def require_auth():
         return True
     
     # Show login form
-    st.title("🔐 Login Required")
+    st.title("🔐 Нэвтрэх шаардлагатай")
     
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
+        username = st.text_input("Хэрэглэгчийн нэр")
+        password = st.text_input("Нууц үг", type="password")
+        submitted = st.form_submit_button("Нэвтрэх")
         
         if submitted:
             user = authenticate_user(username, password)
             
             if user:
                 login_user(user)
-                st.success(f"Welcome, {user.full_name or user.username}!")
+                st.success(f"Тавтай морил, {user.full_name or user.username}!")
                 st.rerun()
             else:
-                st.error("Invalid username or password")
+                st.error("Хэрэглэгчийн нэр эсвэл нууц үг буруу байна")
     
     return False
 

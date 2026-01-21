@@ -14,7 +14,7 @@ from datetime import datetime
 
 # Page configuration - MUST be first Streamlit command
 st.set_page_config(
-    page_title="Central Planning Platform",
+    page_title="Төсвийн Автоматжуулалтын Платформ",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -98,36 +98,6 @@ def main():
     
     # Main content
     show_home_page()
-    
-    # Sidebar
-    with st.sidebar:
-        st.image("https://via.placeholder.com/150x50?text=BAP+Logo", width=150)
-        st.title(APP_NAME)
-        st.caption(f"Version {APP_VERSION}")
-        
-        st.divider()
-        
-        # Check database connection
-        if check_database_connection():
-            st.success("🟢 Database Connected")
-        else:
-            st.error("🔴 Database Error")
-        
-        st.divider()
-        
-        # User info (if logged in)
-        if st.session_state.get('authenticated'):
-            user = get_current_user()
-            st.write(f"👤 **{user.full_name or user.username}**")
-            st.caption(f"Role: {user.role.value.title()}")
-            if st.button("Logout"):
-                logout_user()
-                st.rerun()
-        else:
-            st.warning("Not logged in")
-            if st.button("Login"):
-                st.session_state['show_login'] = True
-                st.rerun()
 
 
 # =============================================================================
@@ -142,59 +112,59 @@ def show_home_page():
         show_login_form()
         return
     
-    st.title("📊 Budget Automation Platform (BAP)")
-    st.markdown("**Transform your Excel-based budget planning into a streamlined 4-stage workflow.**")
+    st.title("📊 Төсвийн Автоматжуулалтын Платформ (BAP)")
+    st.markdown("**Excel дээр суурилсан төсвийн төлөвлөлтийг 4 үе шаттай ажлын урсгалд шилжүүлэх.**")
     
     st.divider()
     
     # 4-Stage Workflow Explanation
-    st.header("🔄 The 4-Stage Workflow")
+    st.header("🔄 4 Үе Шаттай Ажлын Урсгал")
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown("""
-        ### How It Works:
+        ### Хэрхэн ажилладаг:
         
-        **Stage 1: 📤 PENDING_APPROVAL (Upload)**
-        - Planner uploads Excel/CSV budget file
-        - Data is saved to database
-        - ⚠️ **NOT visible on Main Dashboard yet**
+        **1-р үе шат: 📤 БАТЛАХ ХҮЛЭЭЛТ (Хуулах)**
+        - Төлөвлөгч Excel/CSV төсвийн файл хуулна
+        - Өгөгдөл мэдээллийн санд хадгалагдана
+        - ⚠️ **Үндсэн самбар дээр хараахан харагдахгүй**
         
-        **Stage 2: ✅ APPROVED_FOR_PRINT (Manager Review)**
-        - Manager reviews the pending file
-        - Manager clicks "Approve" button
-        - Planner can now generate a PDF summary
+        **2-р үе шат: ✅ ХЭВЛЭХЭД БЭЛЭН (Менежерийн хянан шалгах)**
+        - Менежер хүлээгдэж буй файлыг хянана
+        - Менежер "Батлах" товчийг дарна
+        - Төлөвлөгч PDF хураангуй үүсгэж болно
         
-        **Stage 3: 🖨️ SIGNING (Offline Process)**
-        - Planner downloads the system-generated PDF
-        - Planner prints it and gets physical signatures/stamps
-        - Planner scans the signed document
+        **3-р үе шат: 🖨️ ГАРЫН ҮСЭГ ЗУРАХ (Шууд процесс)**
+        - Төлөвлөгч системээс үүссэн PDF-г татаж авна
+        - Төлөвлөгч үүнийг хэвлэж гарын үсэг/тамга авна
+        - Төлөвлөгч гарын үсэгтэй баримтыг скан хийнэ
         
-        **Stage 4: 🎯 FINALIZED (Archiving)**
-        - Planner uploads the signed scan (stored on disk, not in DB)
-        - User clicks "Finalize" button
-        - ✅ **NOW data appears on the Main Analytics Dashboard**
+        **4-р үе шат: 🎯 ЭЦЭСЛЭСЭН (Архивлах)**
+        - Төлөвлөгч гарын үсэгтэй сканыг хуулна (дискэнд хадгалагдана, ӨС-д биш)
+        - Хэрэглэгч "Эцэслэх" товчийг дарна
+        - ✅ **ОДОО өгөгдөл Үндсэн Шинжилгээний Самбар дээр гарч ирнэ**
         """)
     
     with col2:
         st.info("""
-        **Key Rules:**
+        **Гол дүрмүүд:**
         
-        ✅ Only FINALIZED data is visible on dashboard
+        ✅ Зөвхөн ЭЦЭСЛЭСЭН өгөгдөл самбар дээр харагдана
         
-        ✅ Row-level security: Users can only edit their own rows
+        ✅ Мөрийн түвшний аюулгүй байдал: Хэрэглэгчид зөвхөн өөрийнхөө мөрийг засаж болно
         
-        ✅ Signed documents stored on disk (not in database)
+        ✅ Гарын үсэгтэй баримтууд дискэнд хадгалагдана (мэдээллийн санд биш)
         
-        ✅ Complete audit trail for compliance
+        ✅ Дагаж мөрдөх бүрэн аудитын мөр
         """)
     
     st.divider()
     
     # Workflow status cards (if user is logged in)
     if st.session_state.get('authenticated'):
-        st.header("📈 Current Status")
+        st.header("📈 Одоогийн Байдал")
         
         try:
             status_counts = get_workflow_status_counts()
@@ -203,56 +173,56 @@ def show_home_page():
             
             with col1:
                 count = status_counts.get('pending_approval', 0)
-                st.metric("⏳ Pending Approval", count)
+                st.metric("⏳ Батлах хүлээлт", count)
             with col2:
                 count = status_counts.get('approved_for_print', 0)
-                st.metric("✅ Approved", count)
+                st.metric("✅ Батлагдсан", count)
             with col3:
                 count = status_counts.get('signing', 0)
-                st.metric("🖨️ Signing", count)
+                st.metric("🖨️ Гарын үсэг зурах", count)
             with col4:
                 count = status_counts.get('finalized', 0)
-                st.metric("🎯 Finalized", count)
+                st.metric("🎯 Эцэслэсэн", count)
                 
         except Exception as e:
-            st.info("No data yet. Start by uploading a budget file!")
+            st.info("Өгөгдөл хараахан байхгүй байна. Төсвийн файл хуулж эхлээрэй!")
         
         st.divider()
     
     # Quick Actions
-    st.header("🚀 Quick Actions")
+    st.header("🚀 Хурдан үйлдлүүд")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.page_link("pages/2_📤_Upload.py", label="📤 Upload Budget File", icon="📤")
-        st.caption("Upload new budget files to start the workflow")
+        st.page_link("pages/2_📤_Upload.py", label="📤 Төсвийн файл хуулах", icon="📤")
+        st.caption("Шинэ төсвийн файлуудыг хуулж ажлын урсгалыг эхлүүлэх")
         
     with col2:
-        st.page_link("pages/1_🔄_Workflow.py", label="🔄 Manage Workflow", icon="🔄")
-        st.caption("Review, approve, and finalize budgets")
+        st.page_link("pages/1_🔄_Workflow.py", label="🔄 Ажлын урсгал удирдах", icon="🔄")
+        st.caption("Хянах, батлах, эцэслэх")
         
     with col3:
-        st.page_link("pages/3_📊_Dashboard.py", label="📊 View Dashboard", icon="📊")
-        st.caption("View finalized budgets with analytics")
+        st.page_link("pages/3_📊_Dashboard.py", label="📊 Самбар харах", icon="📊")
+        st.caption("Эцэслэсэн төсвүүдийг шинжилгээтэйгээр харах")
 
 
 def show_login_form():
     """Show login form."""
     
-    st.title("🔐 Login")
+    st.title("🔐 Нэвтрэх")
     
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        username = st.text_input("Хэрэглэгчийн нэр")
+        password = st.text_input("Нууц үг", type="password")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            submitted = st.form_submit_button("Login", type="primary")
+            submitted = st.form_submit_button("Нэвтрэх", type="primary")
         
         with col2:
-            cancel = st.form_submit_button("Cancel")
+            cancel = st.form_submit_button("Цуцлах")
         
         if submitted:
             from modules.auth import authenticate_user, login_user
@@ -260,11 +230,11 @@ def show_login_form():
             
             if user:
                 login_user(user)
-                st.success(f"Welcome, {user.full_name or user.username}!")
+                st.success(f"Тавтай морил, {user.full_name or user.username}!")
                 del st.session_state['show_login']
                 st.rerun()
             else:
-                st.error("❌ Invalid username or password")
+                st.error("❌ Хэрэглэгчийн нэр эсвэл нууц үг буруу байна")
         
         if cancel:
             del st.session_state['show_login']
@@ -272,10 +242,10 @@ def show_login_form():
     
     st.divider()
     st.info("""
-    **Demo Credentials:**
-    - `admin` / `admin123` (Admin)
-    - `manager` / `manager123` (Manager)
-    - `planner` / `planner123` (Planner)
+    **Туршилтын эрх:**
+    - `admin` / `admin123` (Админ)
+    - `manager` / `manager123` (Менежер)
+    - `planner` / `planner123` (Төлөвлөгч)
     """)
 
 
