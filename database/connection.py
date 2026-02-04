@@ -27,8 +27,6 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
 # Import configuration
-import sys
-sys.path.append('..')
 from config import DATABASE_URL, DATABASE_TYPE
 
 # Set up logging
@@ -59,11 +57,11 @@ def get_engine_args() -> dict:
             "echo": False,
         }
     else:
-        # PostgreSQL configuration
+        # PostgreSQL configuration - Optimized for 15-20 concurrent users
         return {
             # Connection pool settings for production
-            "pool_size": 5,              # Number of connections to keep
-            "max_overflow": 10,          # Extra connections when pool is full
+            "pool_size": 15,             # Base connections (matches expected users)
+            "max_overflow": 20,          # Extra connections for peak load (total max: 35)
             "pool_timeout": 30,          # Seconds to wait for connection
             "pool_recycle": 1800,        # Recycle connections after 30 minutes
             "pool_pre_ping": True,       # Test connections before use
@@ -84,12 +82,15 @@ engine = create_engine(DATABASE_URL, **get_engine_args())
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     """
-    Enable foreign key constraints for SQLite connections.
+    Enable foreign key constraints and WAL mode for SQLite connections.
+    WAL mode allows concurrent reads while writing.
     This runs automatically when a new connection is created.
     """
     if DATABASE_TYPE == "sqlite":
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")  # Better concurrency
+        cursor.execute("PRAGMA busy_timeout=5000")  # Wait 5 sec if locked
         cursor.close()
 
 
@@ -117,7 +118,7 @@ def get_session() -> Generator[Session, None, None]:
     Raises:
         Exception: Re-raises any database exceptions after rollback
     """
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     try:
         yield session
         session.commit()
@@ -142,7 +143,7 @@ def get_session_for_streamlit():
     Note:
         Remember to call session.close() when done!
     """
-    return Session(engine)
+    return Session(engine, expire_on_commit=False)
 
 
 # =============================================================================
@@ -163,7 +164,7 @@ def init_db() -> None:
         init_db()
     """
     # Import models to register them with SQLModel
-    from database.models import User, BudgetFile, BudgetItem
+    from .models import User, BudgetFile, BudgetItem
     
     logger.info(f"Initializing database: {DATABASE_TYPE}")
     logger.info(f"Connection URL: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
@@ -242,66 +243,103 @@ def get_database_info() -> dict:
 
 def seed_demo_users() -> None:
     """
-    Create demo users for development/testing.
+    Create initial admin users for the system.
     
-    Creates:
-        - admin / admin123 (Admin role)
-        - manager / manager123 (Manager role)  
-        - planner / planner123 (Planner role)
+    Creates 3 admin users with @unitel.mn emails:
+        - admin1@unitel.mn (Admin role)
+        - admin2@unitel.mn (Admin role)
+        - admin3@unitel.mn (Admin role)
     
-    Note:
-        Uses simple password hashing for demo purposes.
-        In production, use proper bcrypt hashing!
+    Also creates legacy demo users for backward compatibility.
     """
-    from database.models import User
+    from .models import User
     from config import UserRole
-    import hashlib
     
-    # Simple hash for demo (use bcrypt in production!)
-    def simple_hash(password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+    # Use proper password hashing
+    try:
+        from modules.jwt_auth import hash_password
+    except ImportError:
+        import hashlib
+        def hash_password(password: str) -> str:
+            return hashlib.sha256(password.encode()).hexdigest()
     
-    demo_users = [
+    # Initial admin users with @unitel.mn emails
+    admin_users = [
+        {
+            "username": "admin1",
+            "email": "admin1@unitel.mn",
+            "full_name": "Admin One",
+            "role": UserRole.ADMIN,
+            "password_hash": hash_password("Admin123!"),
+        },
+        {
+            "username": "admin2",
+            "email": "admin2@unitel.mn",
+            "full_name": "Admin Two",
+            "role": UserRole.ADMIN,
+            "password_hash": hash_password("Admin123!"),
+        },
+        {
+            "username": "admin3",
+            "email": "admin3@unitel.mn",
+            "full_name": "Admin Three",
+            "role": UserRole.ADMIN,
+            "password_hash": hash_password("Admin123!"),
+        },
+    ]
+    
+    # Legacy demo users (for backward compatibility)
+    legacy_users = [
         {
             "username": "admin",
             "email": "admin@example.com",
             "full_name": "System Admin",
             "role": UserRole.ADMIN,
-            "password_hash": simple_hash("admin123"),
+            "password_hash": hash_password("admin123"),
         },
         {
             "username": "manager",
             "email": "manager@example.com", 
             "full_name": "Marketing Manager",
             "role": UserRole.MANAGER,
-            "password_hash": simple_hash("manager123"),
+            "password_hash": hash_password("manager123"),
         },
         {
             "username": "planner",
             "email": "planner@example.com",
             "full_name": "Marketing Planner",
             "role": UserRole.PLANNER,
-            "password_hash": simple_hash("planner123"),
+            "password_hash": hash_password("planner123"),
         },
     ]
+    
+    all_users = admin_users + legacy_users
     
     with get_session() as session:
         from sqlmodel import select
         
-        for user_data in demo_users:
-            # Check if user already exists
+        for user_data in all_users:
+            # Check if user already exists by email
             existing = session.exec(
-                select(User).where(User.username == user_data["username"])
+                select(User).where(User.email == user_data["email"])
             ).first()
             
             if not existing:
-                user = User(**user_data)
-                session.add(user)
-                logger.info(f"Created demo user: {user_data['username']}")
+                # Also check by username
+                existing_username = session.exec(
+                    select(User).where(User.username == user_data["username"])
+                ).first()
+                
+                if not existing_username:
+                    user = User(**user_data)
+                    session.add(user)
+                    logger.info(f"Created user: {user_data['email']}")
+                else:
+                    logger.info(f"Username already exists: {user_data['username']}")
             else:
-                logger.info(f"Demo user already exists: {user_data['username']}")
+                logger.info(f"User already exists: {user_data['email']}")
     
-    logger.info("Demo users seeded successfully")
+    logger.info("Users seeded successfully")
 
 
 # =============================================================================
@@ -319,6 +357,7 @@ if __name__ == "__main__":
     
     # Initialize and test
     init_db()
+    
     
     if check_database_connection():
         print("✅ Connection successful!")

@@ -1,20 +1,16 @@
 """
-Budget Workflow Page - 4-Stage Process
-======================================
+Workflow Page - Manager Reviews Excel Files
+============================================
 
-Handles all 4 stages of the budget approval workflow:
-Stage 1: PENDING_APPROVAL - Upload and awaiting manager review
-Stage 2: APPROVED_FOR_PRINT - Generate PDF for printing
-Stage 3: SIGNING - Upload signed document
-Stage 4: FINALIZED - Complete (visible on dashboard)
+Managers can view and download uploaded Excel files exactly as they were uploaded.
 
 Author: CPP Development Team
 """
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import os
+from datetime import datetime
 
 # Page configuration
 st.set_page_config(
@@ -24,23 +20,22 @@ st.set_page_config(
 )
 
 # Import our modules
-import sys
-sys.path.append('..')
-from config import FileStatus, UserRole, ChannelType
-from database.connection import get_session
-from database.models import User, BudgetFile, BudgetItem
-from modules.auth import init_session_state, get_current_user, require_auth
+from config import FileStatus, UserRole
+from database import get_session, User, BudgetFile
+from modules.jwt_auth import get_current_user_from_token
 from modules.services import (
     get_files_pending_approval,
-    get_files_approved_for_print,
-    get_files_in_signing,
-    update_budget_file_status,
-    update_file_with_pdf,
-    update_file_with_signed_document,
-    get_budget_items_by_file
+    update_budget_file_status
 )
-from modules.pdf_generator import generate_budget_pdf
-from modules.file_storage import save_signed_document, ensure_storage_directories
+from modules.file_storage import (
+    get_excel_file_path, 
+    read_excel_file, 
+    read_excel_file_bytes,
+    create_preview_pdf,
+    read_pdf_as_base64,
+    preview_pdf_exists,
+    get_preview_pdf_path
+)
 
 
 # =============================================================================
@@ -50,51 +45,122 @@ from modules.file_storage import save_signed_document, ensure_storage_directorie
 def main():
     """Main workflow page."""
     
-    # Initialize session
-    init_session_state()
+    # Check JWT authentication
+    jwt_user = get_current_user_from_token()
+    if not jwt_user:
+        st.title("🔄 Төсвийн ажлын урсгал")
+        st.warning("⚠️ Нэвтрэх шаардлагатай")
+        st.info("👈 Зүүн талын цэснээс **🏠 Home** хуудас руу очиж нэвтэрнэ үү.")
+        if st.button("🔐 Нэвтрэх хуудас руу очих"):
+            st.switch_page("app.py")
+        return
     
-    # Check authentication
-    if not require_auth():
-        st.stop()
+    # Get user from database for full object
+    with get_session() as session:
+        user = session.get(User, int(jwt_user['id']))
     
-    # Get current user
-    user = get_current_user()
     if not user:
         st.error("Хэрэглэгч олдсонгүй. Дахин нэвтэрнэ үү.")
         st.stop()
     
     # Page header
-    st.title("🔄 Төсвийн ажлын урсгал удирдах")
-    st.markdown(f"Тавтай морил, **{user.full_name or user.username}** ({user.role.value})")
+    st.title("🔄 Төсвийн ажлын урсгал")
+    st.markdown(f"Нэвтэрсэн: **{user.full_name or user.username}** ({user.role.value})")
     
-    # Ensure storage directories exist
-    ensure_storage_directories()
+    st.divider()
     
     # Show different views based on role
-    if user.role == UserRole.MANAGER:
+    if user.role in [UserRole.MANAGER, UserRole.ADMIN]:
         show_manager_view(user)
-    elif user.role == UserRole.PLANNER:
-        show_planner_view(user)
-    elif user.role == UserRole.ADMIN:
-        # Admins can see both views
-        tab1, tab2 = st.tabs(["👔 Менежерийн харах", "👤 Төлөвлөгчийн харах"])
-        with tab1:
-            show_manager_view(user)
-        with tab2:
-            show_planner_view(user)
     else:
-        st.warning("Үүрэг тодорхойгүй байна. Админтай холбогдоно уу.")
+        show_planner_view(user)
 
 
 # =============================================================================
-# MANAGER VIEW - Stage 1: Approve files
+# MANAGER VIEW
 # =============================================================================
 
 def show_manager_view(user: User):
-    """Show pending approvals for managers."""
+    """Show pending approvals for managers - with Excel download."""
     
-    st.header("👔 Менежерийн самбар - Батлах хүлээлт")
-    st.info("📋 **1-р үе шат: БАТЛАХ ХҮЛЭЭЛТ** - Төсвийн файлуудыг хянаж батлах")
+    st.header("👔 Менежерийн самбар - Хүлээгдэж байгаа")
+    st.info("📋 Доорх файлуудыг хянаж, Excel файлыг татаж үзээд батлах эсвэл буцаах боломжтой.")
+    
+    # =========================================================================
+    # SPECIALIST MANAGEMENT (Admin/Manager only)
+    # =========================================================================
+    with st.expander("⚙️ Мэргэжилтнүүдийн жагсаалт засварлах"):
+        st.caption("Төсөв оруулах үед сонгох мэргэжилтнүүдийг нэмэх эсвэл хасах")
+        
+        # Initialize session state
+        if 'removed_specialists' not in st.session_state:
+            st.session_state.removed_specialists = []
+        if 'custom_specialists' not in st.session_state:
+            st.session_state.custom_specialists = []
+        
+        # Default specialists list
+        DEFAULT_SPECIALISTS = [
+            "Н. Энх-Өлзий",
+            "Д. Эгшиглэн",
+            "Ц. Содномцэрэн",
+            "М. Золзаяа",
+            "А. Жавхлан",
+            "М. Наранцацрал",
+            "Б. Наранцэцэг"
+        ]
+        
+        # Get current specialists
+        all_default = [s for s in DEFAULT_SPECIALISTS if s not in st.session_state.removed_specialists]
+        all_specialists = all_default + st.session_state.custom_specialists
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            new_specialist = st.text_input(
+                "Шинэ мэргэжилтний нэр",
+                placeholder="Ж. Болд",
+                key="new_specialist_input"
+            )
+        with col2:
+            st.write("")  # spacing
+            if st.button("➕ Нэмэх", key="add_specialist_btn"):
+                if new_specialist and new_specialist.strip():
+                    name = new_specialist.strip()
+                    # Remove from removed list if it was there
+                    if name in st.session_state.removed_specialists:
+                        st.session_state.removed_specialists.remove(name)
+                        st.success(f"✅ '{name}' сэргээгдлээ!")
+                    elif name not in all_specialists:
+                        st.session_state.custom_specialists.append(name)
+                        st.success(f"✅ '{name}' нэмэгдлээ!")
+                    else:
+                        st.warning("Энэ нэр аль хэдийн байна")
+                    st.rerun()
+        
+        st.divider()
+        st.write("**Одоогийн мэргэжилтнүүд:**")
+        
+        # Refresh all_specialists after potential changes
+        all_default = [s for s in DEFAULT_SPECIALISTS if s not in st.session_state.removed_specialists]
+        all_specialists = all_default + st.session_state.custom_specialists
+        
+        # Show all specialists with remove option
+        for i, name in enumerate(all_specialists):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"• {name}")
+            with col2:
+                if st.button("❌ Хасах", key=f"remove_specialist_{i}"):
+                    # Add to removed list or remove from custom list
+                    if name in DEFAULT_SPECIALISTS:
+                        st.session_state.removed_specialists.append(name)
+                    elif name in st.session_state.custom_specialists:
+                        st.session_state.custom_specialists.remove(name)
+                    st.rerun()
+        
+        if not all_specialists:
+            st.warning("Мэргэжилтэн байхгүй байна. Шинээр нэмнэ үү.")
+    
+    st.divider()
     
     # Load pending files
     pending_files = get_files_pending_approval(limit=50)
@@ -107,285 +173,220 @@ def show_manager_view(user: User):
     
     # Display each pending file
     for idx, file in enumerate(pending_files, 1):
-        with st.expander(f"📄 {file.filename} - {file.channel_type.value} (ID: {file.id})", expanded=(idx == 1)):
+        budget_type_label = "Үндсэн төсөв" if file.budget_type.value == "primary" else "Нэмэлт төсөв"
+        
+        with st.expander(f"📄 {file.filename} - {budget_type_label} (ID: {file.id})", expanded=(idx == 1)):
             
             # File information
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Нийт зүйл", file.row_count)
-            with col2:
+                # Нийт бодит төсөв (actual budget)
                 if file.total_amount:
-                    st.metric("Нийт төсөв", f"₮{float(file.total_amount):,.0f}")
+                    st.metric("Нийт бодит төсөв", f"₮{float(file.total_amount):,.0f}")
+                else:
+                    st.metric("Нийт бодит төсөв", "N/A")
+            with col2:
+                # Нийт төсөв (planned budget)
+                if hasattr(file, 'planned_amount') and file.planned_amount:
+                    st.metric("Нийт төсөв", f"₮{float(file.planned_amount):,.0f}")
                 else:
                     st.metric("Нийт төсөв", "N/A")
             with col3:
-                uploader_name = file.uploader.full_name if file.uploader else "Unknown"
-                st.write(f"**Хуулсан:** {uploader_name}")
-                st.caption(f"Огноо: {file.uploaded_at.strftime('%Y-%m-%d %H:%M')}")
+                # Show specialist name from budget file
+                specialist = getattr(file, 'specialist_name', None) or 'N/A'
+                st.write(f"**Төсөв оруулсан:** {specialist}")
+            with col4:
+                st.write(f"**Огноо:** {file.uploaded_at.strftime('%Y-%m-%d %H:%M')}")
             
-            # Show budget items
-            st.subheader("📊 Төсвийн зүйлсийн урьдчилсан харагдац")
-            items = get_budget_items_by_file(file.id)
+            st.divider()
             
-            if items:
-                items_data = []
-                for item in items[:10]:  # Show first 10 items
-                    items_data.append({
-                        "Төсвийн код": item.budget_code,
-                        "Кампанит ажил": item.campaign_name,
-                        "Нийлүүлэгч": item.vendor or "N/A",
-                        "Дүн": f"₮{float(item.amount_planned):,.0f}" if item.amount_planned else "N/A",
-                        "Эхлэх огноо": item.start_date.strftime("%Y-%m-%d") if item.start_date else "N/A"
-                    })
-                
-                df = pd.DataFrame(items_data)
-                st.dataframe(df, use_container_width=True)
-                
-                if len(items) > 10:
-                    st.caption(f"Харуулж байна 10 {len(items)}-ийн зүйл")
+            # Download Excel file button
+            excel_path = file.pdf_file_path  # We stored excel path here
+            if not excel_path:
+                excel_path = get_excel_file_path(file.id)
+            
+            if excel_path and os.path.exists(excel_path):
+                # Read Excel file as bytes for download
+                excel_bytes = read_excel_file_bytes(excel_path)
+                if excel_bytes:
+                    st.download_button(
+                        label="📥 Excel файл татах",
+                        data=excel_bytes,
+                        file_name=file.filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"download_{file.id}"
+                    )
+                    
+                    # Show PDF preview
+                    st.subheader("📄 PDF Preview")
+                    
+                    # Create or get existing PDF preview
+                    with st.spinner("PDF үүсгэж байна..."):
+                        pdf_path = create_preview_pdf(excel_path, file.id)
+                    
+                    if pdf_path and os.path.exists(pdf_path):
+                        # Read PDF as base64
+                        pdf_base64 = read_pdf_as_base64(pdf_path)
+                        
+                        if pdf_base64:
+                            # Display PDF in iframe
+                            pdf_display = f'''
+                            <iframe 
+                                src="data:application/pdf;base64,{pdf_base64}" 
+                                width="100%" 
+                                height="600px" 
+                                type="application/pdf"
+                                style="border: 1px solid #ddd; border-radius: 8px;">
+                            </iframe>
+                            '''
+                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            
+                            # Also provide PDF download button
+                            with open(pdf_path, "rb") as pdf_file:
+                                st.download_button(
+                                    label="📥 PDF татах",
+                                    data=pdf_file.read(),
+                                    file_name=f"{file.filename.rsplit('.', 1)[0]}.pdf",
+                                    mime="application/pdf",
+                                    key=f"download_pdf_{file.id}"
+                                )
+                        else:
+                            st.warning("PDF унших боломжгүй байна")
+                    else:
+                        st.warning("⚠️ PDF үүсгэхэд алдаа гарлаа. Excel preview харуулж байна.")
+                        # Fallback to Excel preview
+                        try:
+                            import pandas as pd
+                            xl = pd.ExcelFile(excel_path)
+                            target_sheet = xl.sheet_names[0]
+                            df = pd.read_excel(xl, sheet_name=target_sheet, header=None)
+                            for col in df.columns:
+                                df[col] = df[col].apply(lambda x: str(x) if pd.notna(x) else "")
+                            st.dataframe(df, height=400)
+                        except Exception as e:
+                            st.error(f"Preview харуулахад алдаа: {e}")
             else:
-                st.warning("Энэ файлд зүйл олдсонгүй")
+                st.warning("⚠️ Excel файл олдсонгүй")
+            
+            st.divider()
             
             # Action buttons
-            st.divider()
-            col1, col2, col3 = st.columns([1, 1, 3])
+            st.subheader("⚡ Үйлдэл")
+            
+            col1, col2, col3 = st.columns([1, 1, 2])
             
             with col1:
-                if st.button(f"✅ Батлах", key=f"approve_{file.id}", type="primary"):
-                    result = update_budget_file_status(
+                if st.button("✅ Батлах", key=f"approve_{file.id}", type="primary"):
+                    success = update_budget_file_status(
                         file.id,
                         FileStatus.APPROVED_FOR_PRINT,
-                        reviewer_id=user.id,
-                        reviewer_comment="Approved by manager"
+                        reviewer_id=user.id
                     )
-                    if result:
-                        st.success(f"✅ Файл батлагдлаа! Төлөвлөгч одоо PDF үүсгэж болно.")
+                    if success:
+                        st.success("✅ Файл батлагдлаа!")
                         st.rerun()
                     else:
-                        st.error("Файл батлахад алдаа гарлаа")
+                        st.error("Батлахад алдаа гарлаа")
             
             with col2:
-                if st.button(f"❌ Татгалзах", key=f"reject_{file.id}"):
-                    st.session_state[f'show_reject_{file.id}'] = True
-            
-            # Rejection form
-            if st.session_state.get(f'show_reject_{file.id}', False):
-                with st.form(key=f"reject_form_{file.id}"):
-                    reason = st.text_area("Татгалзсан шалтгаан:", key=f"reason_{file.id}")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.form_submit_button("Татгалзахыг баталгаажуулах"):
-                            if reason.strip():
-                                # For now, we move back to PENDING_APPROVAL with comment
-                                # In a more complex system, you might have a REJECTED status
-                                result = update_budget_file_status(
-                                    file.id,
-                                    FileStatus.PENDING_APPROVAL,
-                                    reviewer_id=user.id,
-                                    reviewer_comment=f"REJECTED: {reason}"
-                                )
-                                if result:
-                                    st.error(f"❌ Файл татгалзагдлаа. Төлөвлөгчид мэдэгдсэн.")
-                                    del st.session_state[f'show_reject_{file.id}']
-                                    st.rerun()
-                            else:
-                                st.warning("Татгалзах шалтгааныг оруулна уу")
-                    
-                    with col2:
-                        if st.form_submit_button("Цуцлах"):
-                            del st.session_state[f'show_reject_{file.id}']
+                reject_comment = st.text_input(
+                    "Буцаах шалтгаан",
+                    key=f"reject_comment_{file.id}",
+                    placeholder="Шалтгаан бичнэ үү..."
+                )
+                if st.button("❌ Буцаах", key=f"reject_{file.id}"):
+                    if not reject_comment:
+                        st.warning("Буцаах шалтгаан оруулна уу")
+                    else:
+                        # Reject = set to REJECTED status
+                        success = update_budget_file_status(
+                            file.id,
+                            FileStatus.REJECTED,
+                            reviewer_id=user.id,
+                            reviewer_comment=reject_comment
+                        )
+                        if success:
+                            st.success("✅ Файл буцаагдлаа. Ажилтан засвар хийх боломжтой.")
                             st.rerun()
+                        else:
+                            st.error("Буцаахад алдаа гарлаа")
 
 
 # =============================================================================
-# PLANNER VIEW - Stages 2 & 3
+# PLANNER VIEW
 # =============================================================================
 
 def show_planner_view(user: User):
-    """Show workflow stages for planners."""
+    """Show planner's uploaded files status."""
     
-    st.header("👤 Төлөвлөгчийн самбар")
+    st.header("📋 Миний оруулсан төсвүүд")
     
-    # Create tabs for different stages
-    tab1, tab2, tab3 = st.tabs([
-        "⏳ Батлах хүлээлт",
-        "🖨️ Хэвлэхэд бэлэн",
-        "✍️ Гарын үсэг хүлээж байна"
-    ])
+    # Get user's files
+    with get_session() as session:
+        from sqlmodel import select
+        statement = (
+            select(BudgetFile)
+            .where(BudgetFile.uploader_id == user.id)
+            .order_by(BudgetFile.uploaded_at.desc())
+        )
+        my_files = session.exec(statement).all()
     
-    with tab1:
-        show_pending_files(user)
+    # Show rejected files prominently
+    rejected_files = [f for f in my_files if f.status == FileStatus.REJECTED]
+    if rejected_files:
+        st.error(f"⚠️ {len(rejected_files)} файл буцаагдсан байна! Засвар хийж дахин илгээнэ үү.")
+        
+        for file in rejected_files:
+            with st.expander(f"❌ {file.campaign_name or file.filename}", expanded=True):
+                st.markdown(f"**📌 Буцаасан шалтгаан:** {file.reviewer_comment or 'Шалтгаан бичигдээгүй'}")
+                st.markdown(f"**📅 Огноо:** {file.reviewed_at.strftime('%Y-%m-%d %H:%M') if file.reviewed_at else 'N/A'}")
+                
+                # Button to resubmit (redirect to upload page)
+                if st.button("📤 Дахин засаж илгээх", key=f"resubmit_{file.id}"):
+                    st.page_link("pages/2_📤_Upload.py", label="Upload хуудас руу очих")
+        
+        st.divider()
     
-    with tab2:
-        show_approved_files(user)
-    
-    with tab3:
-        show_signing_files(user)
-
-
-def show_pending_files(user: User):
-    """Show files waiting for manager approval."""
-    
-    st.subheader("⏳ Менежерийн батлал хүлээж буй файлууд")
-    st.info("📋 **1-р үе шат: БАТЛАХ ХҮЛЭЭЛТ** - Таны файлуудыг менежерүүд хянаж байна")
-    
-    # Get user's pending files
-    from modules.services import get_budget_files_by_uploader
-    files = [f for f in get_budget_files_by_uploader(user.id) if f.status == FileStatus.PENDING_APPROVAL]
-    
-    if not files:
-        st.success("✅ Батлал хүлээж буй файл байхгүй")
+    if not my_files:
+        st.info("Та одоогоор ямар ч төсөв оруулаагүй байна.")
+        st.page_link("pages/2_📤_Upload.py", label="📤 Төсөв оруулах", icon="📤")
         return
     
-    for file in files:
-        with st.expander(f"📄 {file.filename} - Хуулсан {file.uploaded_at.strftime('%Y-%m-%d')}"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Зүйлүүд", file.row_count)
-            with col2:
-                if file.total_amount:
-                    st.metric("Нийт", f"₮{float(file.total_amount):,.0f}")
-            
-            if file.reviewer_comment and "REJECTED" in file.reviewer_comment:
-                st.error(f"❌ Татгалзсан шалтгаан: {file.reviewer_comment}")
-                st.info("Тайлбаруудыг уншиж засварласан файл хуулна уу.")
-
-
-def show_approved_files(user: User):
-    """Show approved files ready for PDF generation (Stage 2)."""
-    
-    st.subheader("🖨️ Батлагдсан файлууд - Хэвлэхэд бэлэн")
-    st.info("📋 **2-р үе шат: ХЭВЛЭХЭД БЭЛЭН** - Хэвлэх болон гарын үсэг зурахад зориулсан PDF үүсгэх")
-    
-    files = get_files_approved_for_print(user.id)
-    
-    if not files:
-        st.success("✅ Хэвлэхэд бэлэн файл байхгүй")
-        return
-    
-    for file in files:
-        with st.expander(f"📄 {file.filename} (ID: {file.id})", expanded=True):
-            
-            # File info
+    # Display files
+    for file in my_files:
+        status_emoji = {
+            FileStatus.PENDING_APPROVAL: "🕐",
+            FileStatus.APPROVED_FOR_PRINT: "✅",
+            FileStatus.SIGNING: "📝",
+            FileStatus.FINALIZED: "🏁",
+            FileStatus.REJECTED: "❌"
+        }.get(file.status, "❓")
+        
+        status_text = {
+            FileStatus.PENDING_APPROVAL: "Хүлээгдэж байгаа",
+            FileStatus.APPROVED_FOR_PRINT: "Батлагдсан",
+            FileStatus.SIGNING: "Гарын үсэг зурж байна",
+            FileStatus.FINALIZED: "Дууссан",
+            FileStatus.REJECTED: "Буцаагдсан"
+        }.get(file.status, str(file.status))
+        
+        with st.expander(f"{status_emoji} {file.filename} - {status_text}"):
             col1, col2, col3 = st.columns(3)
+            
             with col1:
-                st.metric("Зүйлүүд", file.row_count)
+                st.write(f"**ID:** {file.id}")
+                st.write(f"**Мөрийн тоо:** {file.row_count or 'N/A'}")
+            
             with col2:
                 if file.total_amount:
-                    st.metric("Нийт", f"₮{float(file.total_amount):,.0f}")
+                    st.write(f"**Нийт дүн:** ₮{float(file.total_amount):,.0f}")
+                st.write(f"**Илгээсэн:** {file.uploaded_at.strftime('%Y-%m-%d %H:%M')}")
+            
             with col3:
-                st.write(f"**Батлагдсан:** {file.reviewed_at.strftime('%Y-%m-%d')}")
-            
-            if file.reviewer_comment:
-                st.info(f"💬 Менежерийн тайлбар: {file.reviewer_comment}")
-            
-            st.divider()
-            
-            # PDF Generation
-            if st.button(f"📄 Хэвлэхэд зориулсан PDF үүсгэх", key=f"gen_pdf_{file.id}", type="primary"):
-                with st.spinner("PDF үүсгэж байна..."):
-                    # Get budget items
-                    items = get_budget_items_by_file(file.id)
-                    
-                    # Generate PDF
-                    success, message, pdf_path = generate_budget_pdf(file, items)
-                    
-                    if success:
-                        # Update database
-                        update_file_with_pdf(file.id, pdf_path)
-                        st.success("✅ PDF амжилттай үүсгэгдлээ!")
-                        st.info("📝 Дараагийн алхмууд:\n1. PDF-г татаж авах\n2. Хэвлэх\n3. Гарын үсэг авах\n4. Гарын үсэгтэй баримтыг скан хийх\n5. Системд буцаан хуулах")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-            
-            # Show download button if PDF exists
-            if file.pdf_file_path and os.path.exists(file.pdf_file_path):
-                with open(file.pdf_file_path, "rb") as f:
-                    pdf_data = f.read()
-                
-                st.download_button(
-                    label="⬇️ Үүссэн PDF-г татаж авах",
-                    data=pdf_data,
-                    file_name=f"budget_approval_{file.id}.pdf",
-                    mime="application/pdf",
-                    key=f"download_{file.id}"
-                )
-
-
-def show_signing_files(user: User):
-    """Show files awaiting signed document upload (Stage 3)."""
-    
-    st.subheader("✍️ Гарын үсэгтэй баримт хүлээж байна")
-    st.info("📋 **3-р үе шат: ГАРЫН ҮСЭГ** - Эцэслэхийн тулд скан хийсэн гарын үсэгтэй баримтыг хуулна уу")
-    
-    files = get_files_in_signing(user.id)
-    
-    if not files:
-        st.success("✅ Гарын үсгийн хуулалт хүлээж буй файл байхгүй")
-        return
-    
-    for file in files:
-        with st.expander(f"📄 {file.filename} (ID: {file.id})", expanded=True):
-            
-            # File info
-            st.write(f"**PDF үүсгэсэн:** {file.pdf_generated_at.strftime('%Y-%m-%d %H:%M')}")
-            st.write(f"**Зүйлүүд:** {file.row_count}")
-            
-            # Download PDF if needed
-            if file.pdf_file_path and os.path.exists(file.pdf_file_path):
-                with open(file.pdf_file_path, "rb") as f:
-                    pdf_data = f.read()
-                
-                st.download_button(
-                    label="⬇️ PDF-г дахин татаж авах",
-                    data=pdf_data,
-                    file_name=f"budget_approval_{file.id}.pdf",
-                    mime="application/pdf",
-                    key=f"redownload_{file.id}"
-                )
-            
-            st.divider()
-            st.write("**📤 Гарын үсэгтэй баримт хуулах:**")
-            
-            # Upload form
-            uploaded_signed = st.file_uploader(
-                "Скан хийсэн гарын үсэгтэй баримт сонгох (PDF, JPG, PNG)",
-                type=['pdf', 'jpg', 'jpeg', 'png'],
-                key=f"upload_signed_{file.id}"
-            )
-            
-            if uploaded_signed:
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    if st.button(f"✅ Эцэслэх", key=f"finalize_{file.id}", type="primary"):
-                        with st.spinner("Хуулж эцэслэж байна..."):
-                            # Save signed document
-                            success, file_path, message = save_signed_document(
-                                uploaded_signed,
-                                file.id,
-                                user.username
-                            )
-                            
-                            if success:
-                                # Update database - move to FINALIZED
-                                result = update_file_with_signed_document(file.id, file_path)
-                                
-                                if result:
-                                    st.success("🎉 АМЖИЛТТАЙ! Төсөв одоо ЭЦЭСЛЭГДЭЖ самбар дээр харагдаж байна!")
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error("Өгөгдлийн санд хадгалахад алдаа гарлаа")
-                            else:
-                                st.error(f"❌ {message}")
-                
-                with col2:
-                    st.caption("Энэ нь төсвийг ЭЦЭСЛЭСЭН төлөвт шилжүүлж үндсэн самбар дээр харагдах болгоно.")
+                st.write(f"**Төлөв:** {status_text}")
+                if file.reviewer_comment:
+                    st.warning(f"**Тайлбар:** {file.reviewer_comment}")
 
 
 # =============================================================================

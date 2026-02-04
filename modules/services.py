@@ -19,11 +19,8 @@ from decimal import Decimal
 from sqlmodel import select, func
 from sqlalchemy import and_
 
-import sys
-sys.path.append('..')
-from config import FileStatus, UserRole, ChannelType
-from database.connection import get_session
-from database.models import User, BudgetFile, BudgetItem
+from config import FileStatus, UserRole, ChannelType, BudgetType
+from database import get_session, User, BudgetFile, BudgetItem
 
 
 # =============================================================================
@@ -32,35 +29,57 @@ from database.models import User, BudgetFile, BudgetItem
 
 def create_budget_file(
     filename: str,
-    channel_type: str,
+    budget_type: str,
     uploader_id: int,
     row_count: int = 0,
     total_amount: Optional[float] = None,
-    file_hash: Optional[str] = None
+    planned_amount: Optional[float] = None,
+    file_hash: Optional[str] = None,
+    budget_code: Optional[str] = None,
+    brand: Optional[str] = None,
+    campaign_name: Optional[str] = None,
+    specialist_name: Optional[str] = None,
+    parent_file_id: Optional[int] = None
 ) -> BudgetFile:
     """
     Create a new budget file record.
     
     Args:
         filename: Original filename
-        channel_type: Marketing channel (TV, OOH, etc.)
+        budget_type: Budget type (primary or additional)
         uploader_id: ID of the user uploading
         row_count: Number of data rows
-        total_amount: Sum of budget amounts
+        total_amount: Нийт бодит төсөв (actual budget from Excel)
+        planned_amount: Нийт төсөв (planned budget from Excel)
         file_hash: MD5 hash for duplicate detection
+        budget_code: Budget code from Excel
+        brand: Brand name from Excel
+        campaign_name: Official campaign name (required for PRIMARY)
+        specialist_name: Marketing specialist/planner name
+        parent_file_id: Parent PRIMARY file ID (for ADDITIONAL budgets)
     
     Returns:
         Created BudgetFile object with ID
     """
+    from datetime import datetime, timezone, timedelta
+    mongolia_tz = timezone(timedelta(hours=8))  # UTC+8
+    
     with get_session() as session:
         budget_file = BudgetFile(
             filename=filename,
-            channel_type=ChannelType(channel_type),
+            budget_type=BudgetType(budget_type),
             uploader_id=uploader_id,
             status=FileStatus.PENDING_APPROVAL,  # Start with Stage 1
             row_count=row_count,
             total_amount=Decimal(str(total_amount)) if total_amount else None,
+            planned_amount=Decimal(str(planned_amount)) if planned_amount else None,
             file_hash=file_hash,
+            budget_code=budget_code,
+            brand=brand,
+            campaign_name=campaign_name,
+            specialist_name=specialist_name,
+            parent_file_id=parent_file_id,
+            uploaded_at=datetime.now(mongolia_tz).replace(tzinfo=None),
         )
         session.add(budget_file)
         session.commit()
@@ -86,7 +105,8 @@ def get_budget_files_by_status(
             .order_by(BudgetFile.uploaded_at.desc())
             .limit(limit)
         )
-        return session.exec(statement).all()
+        files = session.exec(statement).all()
+        return files
 
 
 def get_budget_files_by_uploader(
@@ -130,6 +150,11 @@ def update_budget_file_status(
             
             # Update timestamps based on status
             if new_status == FileStatus.APPROVED_FOR_PRINT:
+                budget_file.reviewed_at = datetime.utcnow()
+                budget_file.reviewer_id = reviewer_id
+                budget_file.reviewer_comment = reviewer_comment
+            elif new_status == FileStatus.REJECTED:
+                # Store rejection info
                 budget_file.reviewed_at = datetime.utcnow()
                 budget_file.reviewer_id = reviewer_id
                 budget_file.reviewer_comment = reviewer_comment

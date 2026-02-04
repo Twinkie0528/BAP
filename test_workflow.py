@@ -16,8 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from config import FileStatus, UserRole, ChannelType
-from database.connection import init_db, get_session
-from database.models import User, BudgetFile, BudgetItem
+from database import init_db, get_session, User, BudgetFile, BudgetItem
 from modules.services import (
     create_budget_file,
     create_budget_items_bulk,

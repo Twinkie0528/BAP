@@ -25,9 +25,7 @@ except ImportError:
     print("⚠️ reportlab not installed. PDF generation will not work.")
     print("   Install with: pip install reportlab")
 
-import sys
-sys.path.append('..')
-from database.models import BudgetFile, BudgetItem
+from database import BudgetFile, BudgetItem
 from modules.file_storage import get_pdf_path
 
 

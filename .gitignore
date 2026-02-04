@@ -1,35 +1,65 @@
 # Python virtual environments
 /venv
 /.venv
+venv/
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
-# Database files
+# Database files - NEVER commit database files!
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
 
-# Environment variables
+# Environment variables - CRITICAL: Contains passwords and secrets!
 .env
 .env.local
+.env.production
+.env.*.local
 
-# IDE
+# IDE and Editor
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# BAP specific - Assets and generated files
-# Keep directory structure but ignore actual files
-assets/signed_files/*
-!assets/signed_files/.gitkeep
-assets/generated_pdfs/*
-!assets/generated_pdfs/.gitkeep
-*.log
+# BAP specific - Assets folder (contains uploaded files, PDFs, sensitive data)
+assets/
 
-# Streamlit
+# Logs
+*.log
+logs/
+
+# Streamlit secrets
 .streamlit/secrets.toml
+
+# Test files and analysis outputs
+all_files_analysis.txt
+column_analysis.txt
+excel_analysis.txt
+
+# Backup files
+*.bak
+*.backup
+*_backup.py
+*_old.py
+
+# Test Excel files - may contain sensitive data
+Test_Excel/
+
+# Root level Excel files
+*.xlsx

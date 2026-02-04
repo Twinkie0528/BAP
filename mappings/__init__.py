@@ -5,13 +5,8 @@ Column Mappings Module for Central Planning Platform
 from .column_maps import (
     COMMON_COLUMN_MAP,
     CHANNEL_SPECIFIC_MAPS,
-    TV_COLUMN_MAP,
-    OOH_COLUMN_MAP,
-    FM_COLUMN_MAP,
-    DIGITAL_COLUMN_MAP,
-    PRINT_COLUMN_MAP,
-    EVENT_COLUMN_MAP,
-    METRIC_LABELS,
+    SECTION_KEYWORDS,
+    METADATA_PATTERNS,
     REQUIRED_COLUMNS,
     RECOMMENDED_COLUMNS
 )
@@ -19,13 +14,8 @@ from .column_maps import (
 __all__ = [
     'COMMON_COLUMN_MAP',
     'CHANNEL_SPECIFIC_MAPS',
-    'TV_COLUMN_MAP',
-    'OOH_COLUMN_MAP',
-    'FM_COLUMN_MAP',
-    'DIGITAL_COLUMN_MAP',
-    'PRINT_COLUMN_MAP',
-    'EVENT_COLUMN_MAP',
-    'METRIC_LABELS',
+    'SECTION_KEYWORDS',
+    'METADATA_PATTERNS',
     'REQUIRED_COLUMNS',
     'RECOMMENDED_COLUMNS',
 ]

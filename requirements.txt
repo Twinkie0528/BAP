@@ -20,6 +20,8 @@ streamlit-aggrid>=0.3.4
 
 # Authentication
 bcrypt>=4.0.0  # Password hashing
+python-jose[cryptography]>=3.3.0  # JWT tokens
+passlib>=1.7.4  # Password hashing with bcrypt
 
 # Date/Time
 python-dateutil>=2.8.0

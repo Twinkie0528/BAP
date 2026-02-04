@@ -3,13 +3,20 @@ Configuration Settings for Central Planning Platform (CPP)
 ==========================================================
 
 This file contains all configuration variables for the application.
-Modify DATABASE_URL to switch between SQLite (development) and PostgreSQL (production).
+Environment variables are loaded from .env file for security.
 
 Author: CPP Development Team
 """
 
 import os
 from enum import Enum
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars
 
 # =============================================================================
 # DATABASE CONFIGURATION
@@ -18,12 +25,9 @@ from enum import Enum
 # For Development (SQLite) - Easy setup, no server needed
 SQLITE_URL = "sqlite:///./cpp_database.db"
 
-# For Production (PostgreSQL) - Uncomment and configure when ready
-# Format: postgresql://username:password@host:port/database_name
-POSTGRES_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:password@localhost:5432/cpp_db"
-)
+# For Production (PostgreSQL) - Load from environment variable
+# NEVER hardcode passwords! Use .env file or system environment variables
+POSTGRES_URL = os.getenv("DATABASE_URL", SQLITE_URL)
 
 # Toggle this to switch databases
 # Options: "sqlite" or "postgresql"
@@ -31,6 +35,9 @@ DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
 
 # Active database URL based on type
 DATABASE_URL = SQLITE_URL if DATABASE_TYPE == "sqlite" else POSTGRES_URL
+
+# JWT Secret Key - MUST be set in .env for production
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-change-in-production")
 
 
 # =============================================================================
@@ -59,11 +66,13 @@ class FileStatus(str, Enum):
     Stage 2: APPROVED_FOR_PRINT - Manager approved, planner can generate PDF
     Stage 3: SIGNING - Planner downloaded PDF, getting physical signatures offline
     Stage 4: FINALIZED - Signed document uploaded, data visible on main dashboard
+    REJECTED: Manager rejected, planner needs to fix and resubmit
     """
     PENDING_APPROVAL = "pending_approval"      # Stage 1: Uploaded, awaiting approval
     APPROVED_FOR_PRINT = "approved_for_print"  # Stage 2: Approved, ready for PDF
     SIGNING = "signing"                        # Stage 3: PDF generated, awaiting signed scan
     FINALIZED = "finalized"                    # Stage 4: Complete, visible on dashboard
+    REJECTED = "rejected"                      # Rejected, needs revision
 
 
 class UserRole(str, Enum):
@@ -89,19 +98,30 @@ class ChannelType(str, Enum):
     OTHER = "Other"           # Miscellaneous
 
 
+class BudgetType(str, Enum):
+    """
+    Budget types for file categorization.
+    """
+    PRIMARY = "primary"       # Үндсэн төсөв - Main campaign budget
+    ADDITIONAL = "additional" # Нэмэлт төсөв - Additional/supplementary budget
+
+
 # =============================================================================
 # FILE PROCESSING SETTINGS
 # =============================================================================
 
 # Maximum rows to skip when searching for header row
-MAX_HEADER_SEARCH_ROWS = 15
+MAX_HEADER_SEARCH_ROWS = 30
 
-# Keywords to identify the header row (English and Mongolian)
+# Keywords to identify the header row (Mongolian budget template)
 HEADER_KEYWORDS = [
-    "budget code", "төсвийн код",
-    "campaign", "кампанит",
-    "amount", "дүн",
-    "vendor", "компани",
+    # Primary Mongolian keywords
+    "төрөл", "хийгдэх ажил", "нийт төсөв", "давтамж", "тайлбар",
+    "хару|/хугацаа", "цогц унэ", "хару|/",
+    # Section headers (for detecting budget sections)
+    "сурталчилгааны суваг", "суваг", "контент", "арга хэмжээ",
+    # English fallback
+    "type", "budget", "amount", "description", "frequency",
 ]
 
 # Supported file extensions
@@ -110,6 +130,9 @@ SUPPORTED_EXTENSIONS = [".xlsx", ".xls", ".csv"]
 # =============================================================================
 # FILE STORAGE SETTINGS
 # =============================================================================
+
+# Directory for uploaded budget files
+UPLOAD_FOLDER = "assets/uploaded_files"
 
 # Directory for storing signed documents (on disk, not in DB)
 SIGNED_FILES_DIR = "assets/signed_files"

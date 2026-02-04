@@ -27,9 +27,7 @@ except ImportError:
     BCRYPT_AVAILABLE = False
     print("⚠️ bcrypt not installed. Using SHA256 fallback (less secure).")
 
-import sys
-sys.path.append('..')
-from database.models import User
+from database import User
 from modules.services import get_user_by_username, update_user_last_login
 
 

@@ -1,265 +1,138 @@
 """
-Column Mapping Configurations
-=============================
+Column Mapping Configurations for MD Budget Templates
+======================================================
 
-This file defines how columns from various Excel files map to our standardized
-database schema. Each channel type (TV, OOH, FM, etc.) may have different 
-column names in their source files.
+This file defines how columns from MD Unit Budget Excel files map to our 
+standardized database schema.
 
-IMPORTANT: When you receive a new file format, add its column mappings here.
+Template Structure:
+- Row 15-17: Header row with columns: №, ИДЭВХЖҮҮЛЭЛТИЙН СУВАГ, ХУГАЦАА, 
+  ХАРИУЦАХ ЭЗЭН, ДАВТАМЖ, НЭГЖ ҮНЭ, НИЙТ ТӨСӨВ, ТАЙЛБАР
+- Multiple sections: ДИЖИТАЛ СУВАГ, ВЭБСАЙТ СУВАГ, ТВ СУВАГ, etc.
 
 Author: CPP Development Team
 """
 
 # =============================================================================
-# COMMON COLUMN MAPPINGS
+# MD BUDGET TEMPLATE COLUMN MAPPINGS
 # =============================================================================
-# These mappings apply to ALL file types - the most frequently used columns
-# Format: "source_column_name (lowercase)": "target_standard_name"
+# Maps columns from MD Unit Budget Excel template to standard database fields
 
 COMMON_COLUMN_MAP = {
-    # Budget Code variations (English & Mongolian)
-    "budget code": "budget_code",
-    "budgetcode": "budget_code",
-    "төсвийн код": "budget_code",
-    "төсвийн_код": "budget_code",
-    "код": "budget_code",
+    # Row number
+    "№": "row_number",
+    "no": "row_number",
+    "дугаар": "row_number",
     
-    # Campaign Name variations
-    "campaign name": "campaign_name",
-    "campaign": "campaign_name",
-    "кампанит ажил": "campaign_name",
-    "кампанит": "campaign_name",
-    "нэр": "campaign_name",
-    "campaign_name": "campaign_name",
+    # Channel/Activity - ИДЭВХЖҮҮЛЭЛТИЙН СУВАГ
+    "идэвхжүүлэлтийн суваг": "activity_channel",
+    "суваг": "activity_channel",
+    "төрөл": "item_type",
+    "type": "item_type",
     
-    # Vendor/Company variations
-    "vendor": "vendor",
-    "company": "vendor",
-    "компани": "vendor",
-    "supplier": "vendor",
-    "нийлүүлэгч": "vendor",
-    "agency": "vendor",
-    "агентлаг": "vendor",
+    # Item details
+    "хийгдэх ажил": "work_description",
+    "ажил": "work_description",
+    "дэлгэрэнгүй": "work_description",
+    "нөлөөлөгч": "influencer",
     
-    # Amount variations
-    "amount": "amount_planned",
-    "amount_planned": "amount_planned",
-    "planned amount": "amount_planned",
-    "нийт дүн": "amount_planned",
-    "дүн": "amount_planned",
-    "төсөв": "amount_planned",
-    "budget": "amount_planned",
-    "total": "amount_planned",
+    # Time/Schedule
+    "хугацаа": "schedule",
+    "огноо": "schedule",
+    "date": "schedule",
+    
+    # Responsible person
+    "хариуцах эзэн": "responsible_person",
+    "хариуцагч": "responsible_person",
+    "specialist": "responsible_person",
+    
+    # Quantity/Frequency
+    "давтамж": "frequency",
+    "тоо ширхэг": "frequency",
+    "quantity": "frequency",
+    
+    # Unit price
+    "нэгж үнэ": "unit_price",
+    "үнэ": "unit_price",
+    "unit price": "unit_price",
+    
+    # Total budget
+    "нийт төсөв": "amount_planned",
     "нийт": "amount_planned",
-    "cost": "amount_planned",
-    "зардал": "amount_planned",
+    "total": "amount_planned",
+    "цогц үнэ": "amount_planned",
+    "budget": "amount_planned",
     
-    # Date variations
-    "start date": "start_date",
-    "start_date": "start_date",
-    "эхлэх огноо": "start_date",
-    "эхлэх": "start_date",
-    "from": "start_date",
-    "from date": "start_date",
-    
-    "end date": "end_date",
-    "end_date": "end_date",
-    "дуусах огноо": "end_date",
-    "дуусах": "end_date",
-    "to": "end_date",
-    "to date": "end_date",
-    
-    # Description variations
-    "description": "description",
+    # Description/Notes
     "тайлбар": "description",
     "note": "description",
     "notes": "description",
-    "тэмдэглэл": "description",
-    "comment": "description",
 }
 
 
 # =============================================================================
-# CHANNEL-SPECIFIC COLUMN MAPPINGS
+# SECTION IDENTIFIERS (Channel sections in the Excel)
 # =============================================================================
-# These map channel-specific columns to our generic metric_1, metric_2 fields
-# This allows storing varying data structures in a normalized table
+# These keywords identify section headers in the Excel file
 
-TV_COLUMN_MAP = {
-    # TV-specific metrics
-    "duration": "metric_1",           # Spot duration (e.g., 30 sec)
-    "хугацаа": "metric_1",
-    "spot length": "metric_1",
-    "секунд": "metric_1",
-    
-    "frequency": "metric_2",          # Number of airings
-    "давтамж": "metric_2",
-    "spots": "metric_2",
-    "тоо": "metric_2",
-    "airings": "metric_2",
-    
-    "grp": "metric_3",                # Gross Rating Points
-    "rating": "metric_3",
-    
-    "channel name": "sub_channel",    # TV Channel (MNB, TV5, etc.)
-    "суваг": "sub_channel",
-    "tv channel": "sub_channel",
-}
+SECTION_KEYWORDS = [
+    "дижитал сурталчилгааны суваг",
+    "вэбсайт сурталчилгааны суваг", 
+    "дотоод сурталчилгааны суваг",
+    "тв сурталчилгааны суваг",
+    "fm сурталчилгааны суваг",
+    "гадаа сурталчилгааны суваг",
+    "кино театр сурталчилгааны суваг",
+    "хоол зогсоол сурталчилгааны суваг",
+    "контент хийцлэл",
+    "арга хэмжээ",
+    "судалгаа",
+    "хамтын ажиллагаа",
+    "сонин сэтгүүл",
+    "бусад",
+    # English variations
+    "digital", "website", "tv", "fm", "ooh", "outdoor", "event", "content",
+]
 
-OOH_COLUMN_MAP = {
-    # OOH-specific metrics  
-    "size": "metric_1",               # Billboard size
-    "хэмжээ": "metric_1",
-    "dimensions": "metric_1",
-    
-    "quantity": "metric_2",           # Number of billboards
-    "qty": "metric_2",
-    "тоо хэмжээ": "metric_2",
-    "ширхэг": "metric_2",
-    "count": "metric_2",
-    
-    "location": "sub_channel",        # Physical location
-    "байршил": "sub_channel",
-    "address": "sub_channel",
-    "хаяг": "sub_channel",
-}
 
-FM_COLUMN_MAP = {
-    # FM/Radio-specific metrics
-    "duration": "metric_1",           # Spot duration
-    "хугацаа": "metric_1",
-    "length": "metric_1",
-    
-    "frequency": "metric_2",          # Number of airings
-    "давтамж": "metric_2",
-    "spots per day": "metric_2",
-    
-    "station": "sub_channel",         # Radio station name
-    "станц": "sub_channel",
-    "radio": "sub_channel",
-}
+# =============================================================================
+# METADATA EXTRACTION PATTERNS
+# =============================================================================
+# Patterns to extract metadata from the Excel file header area
 
-DIGITAL_COLUMN_MAP = {
-    # Digital-specific metrics
-    "impressions": "metric_1",        # Ad impressions
-    "харагдалт": "metric_1",
-    "views": "metric_1",
-    
-    "clicks": "metric_2",             # Click count
-    "click": "metric_2",
-    "дарах": "metric_2",
-    
-    "platform": "sub_channel",        # Platform (Facebook, Google, etc.)
-    "платформ": "sub_channel",
-    "media": "sub_channel",
-}
-
-PRINT_COLUMN_MAP = {
-    # Print-specific metrics
-    "size": "metric_1",               # Ad size (full page, half, etc.)
-    "хэмжээ": "metric_1",
-    
-    "insertions": "metric_2",         # Number of insertions
-    "тоо": "metric_2",
-    "issues": "metric_2",
-    
-    "publication": "sub_channel",     # Newspaper/magazine name
-    "сонин": "sub_channel",
-    "сэтгүүл": "sub_channel",
-}
-
-EVENT_COLUMN_MAP = {
-    # Event-specific metrics
-    "attendees": "metric_1",          # Expected attendance
-    "оролцогчид": "metric_1",
-    "capacity": "metric_1",
-    
-    "days": "metric_2",               # Event duration in days
-    "өдөр": "metric_2",
-    
-    "venue": "sub_channel",           # Event venue
-    "байршил": "sub_channel",
-    "location": "sub_channel",
+METADATA_PATTERNS = {
+    "budget_code": r"[A-Z]\d{4}[A-Z]\d{2}",  # e.g., B2504E05
+    "marketing_code": r"[A-Z]{2,4}-[A-Z]+-[A-Z0-9]+-\d+",  # e.g., MBD-UNIVISION-MC1-110023
+    "date_pattern": r"\d{4}\.\d{2}\.\d{2}",  # e.g., 2025.04.21
 }
 
 
 # =============================================================================
-# MASTER MAPPING DICTIONARY
+# REQUIRED AND RECOMMENDED COLUMNS
 # =============================================================================
-# Access channel-specific mappings by channel type
-
-CHANNEL_SPECIFIC_MAPS = {
-    "TV": TV_COLUMN_MAP,
-    "FM": FM_COLUMN_MAP,
-    "OOH": OOH_COLUMN_MAP,
-    "Digital": DIGITAL_COLUMN_MAP,
-    "Print": PRINT_COLUMN_MAP,
-    "Event": EVENT_COLUMN_MAP,
-    "Other": {},  # No specific mappings for "Other"
-}
-
-
-# =============================================================================
-# METRIC LABELS BY CHANNEL
-# =============================================================================
-# Human-readable labels for metric_1, metric_2, metric_3 by channel
-# Used in the UI to show what each metric means
-
-METRIC_LABELS = {
-    "TV": {
-        "metric_1": "Duration (sec)",
-        "metric_2": "Frequency (spots)",
-        "metric_3": "GRP",
-        "sub_channel": "TV Channel",
-    },
-    "FM": {
-        "metric_1": "Duration (sec)",
-        "metric_2": "Frequency (spots)",
-        "metric_3": None,
-        "sub_channel": "Radio Station",
-    },
-    "OOH": {
-        "metric_1": "Size",
-        "metric_2": "Quantity",
-        "metric_3": None,
-        "sub_channel": "Location",
-    },
-    "Digital": {
-        "metric_1": "Impressions",
-        "metric_2": "Clicks",
-        "metric_3": None,
-        "sub_channel": "Platform",
-    },
-    "Print": {
-        "metric_1": "Ad Size",
-        "metric_2": "Insertions",
-        "metric_3": None,
-        "sub_channel": "Publication",
-    },
-    "Event": {
-        "metric_1": "Attendees",
-        "metric_2": "Days",
-        "metric_3": None,
-        "sub_channel": "Venue",
-    },
-}
-
-
-# =============================================================================
-# REQUIRED COLUMNS FOR VALIDATION
-# =============================================================================
-# Minimum required columns after mapping - file is invalid without these
 
 REQUIRED_COLUMNS = [
-    "budget_code",
-    "campaign_name", 
-    "amount_planned",
+    "amount_planned",  # Must have budget amount
 ]
 
-# Optional but recommended columns
 RECOMMENDED_COLUMNS = [
-    "vendor",
-    "start_date",
-    "end_date",
+    "work_description",
+    "responsible_person", 
+    "frequency",
+    "description",
 ]
+
+
+# =============================================================================
+# CHANNEL-SPECIFIC COLUMN MAPPINGS (Legacy - for backward compatibility)
+# =============================================================================
+
+CHANNEL_SPECIFIC_MAPS = {
+    "TV": {},
+    "FM": {},
+    "OOH": {},
+    "Digital": {},
+    "Print": {},
+    "Event": {},
+    "Other": {},
+}
